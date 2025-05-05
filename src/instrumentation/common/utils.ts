@@ -137,7 +137,8 @@ export function startTraceInternal<A extends unknown[], F extends (...args: A) =
         const contextWithWorkflow = attachWorkflowType();
         return context_api.with(contextWithWorkflow, () => {
             return tracer.startActiveSpan("workflow", (span: Span) => {
-                DefaultSpanHandler.setMonocleAttributes(span);
+                const sourcePath = ''
+                DefaultSpanHandler.setMonocleAttributes(span, sourcePath);
                 DefaultSpanHandler.setWorkflowAttributes({ span, wrappedPackage: null });
                 // Mark that we're about to call the function
                 isFnCalled = true;

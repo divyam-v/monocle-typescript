@@ -9,7 +9,7 @@ export const getPatchedMain = function (element: WrapperArguments) {
     const spanHandler: SpanHandler = element.spanHandler || new DefaultSpanHandler();
     return function mainMethodName(original: Function) {
         return function patchMainMethodName() {
-            return processSpanWithTracing(this, element, spanHandler, original, arguments);
+            return processSpanWithTracing(this, element, spanHandler, original, arguments, element.sourcePath);
         };
     };
 }
@@ -43,7 +43,7 @@ function processMultipleElementsWithTracing(
     elements: WrapperArguments[],
     spanHandler: SpanHandler,
     original: Function,
-    args: any
+    args: any,
 ) {
     // Process elements recursively, creating nested spans
     return processElementsRecursively(thisArg, elements, 0, spanHandler, original, args);
@@ -74,7 +74,8 @@ function processElementsRecursively(
         function () {
             return processElementsRecursively(thisArg, elements, index + 1, spanHandler, original, args);
         },
-        args
+        args,
+        currentElement.sourcePath
     );
 }
 
@@ -83,7 +84,8 @@ function processSpanWithTracing(
     element: WrapperArguments,
     spanHandler: SpanHandler,
     original: Function,
-    args: any
+    args: any,
+    sourcePath: string
 ) {
     const tracer = element.tracer;
     let currentContext = context.active();
@@ -100,13 +102,13 @@ function processSpanWithTracing(
         const shouldAddWorkflowSpan = currentContext.getValue(ADD_NEW_WORKFLOW_SYMBOL) === true;
         currentContext = currentContext.setValue(ADD_NEW_WORKFLOW_SYMBOL, false);
         return context.with(currentContext, () => {
-            return handleSpanProcess({ currentContext, tracer, element, spanHandler, thisArg, args, original, shouldAddWorkflowSpan });
+            return handleSpanProcess({ currentContext, tracer, element, spanHandler, thisArg, args, original, shouldAddWorkflowSpan, sourcePath });
         });
     }
 
 }
 
-function handleSpanProcess({ currentContext, tracer, element, spanHandler, thisArg, args, original, shouldAddWorkflowSpan }: { currentContext: any, tracer: Tracer, element: WrapperArguments, spanHandler: SpanHandler, thisArg: () => any, args: any, original: Function, shouldAddWorkflowSpan: boolean }) {
+function handleSpanProcess({ currentContext, tracer, element, spanHandler, thisArg, args, original, shouldAddWorkflowSpan, sourcePath }: { currentContext: any, tracer: Tracer, element: WrapperArguments, spanHandler: SpanHandler, thisArg: () => any, args: any, original: Function, shouldAddWorkflowSpan: boolean, sourcePath: string }) {
     let returnValue: any;
 
 
@@ -115,7 +117,7 @@ function handleSpanProcess({ currentContext, tracer, element, spanHandler, thisA
         (span: Span) => {
             if (isRootSpan(span) || shouldAddWorkflowSpan) {
                 spanHandler.setWorkflowProperties({ span, instance: thisArg, args: args, element });
-                returnValue = handleSpanProcess({ currentContext, tracer, element, spanHandler, thisArg, args, original, shouldAddWorkflowSpan: false });
+                returnValue = handleSpanProcess({ currentContext, tracer, element, spanHandler, thisArg, args, original, shouldAddWorkflowSpan: false, sourcePath });
                 span.updateName("workflow");
                 if (typeof returnValue === 'object' && returnValue !== null && typeof returnValue.then === "function") {
                     returnValue.then(() => {
@@ -132,18 +134,18 @@ function handleSpanProcess({ currentContext, tracer, element, spanHandler, thisA
                 returnValue = original.apply(thisArg, args);
                 if (typeof returnValue === 'object' && returnValue !== null && typeof returnValue.then === "function") {
                     returnValue.then((result: any) => {
-                        postProcessSpanData({ instance: thisArg, spanHandler, span, returnValue: result, element, args: args });
+                        postProcessSpanData({ instance: thisArg, spanHandler, span, returnValue: result, element, args: args, sourcePath });
                     }).catch((error: any) => {
                         span.setStatus({ code: 2, message: error?.message || "Error occurred" });
-                        postProcessSpanData({ instance: thisArg, spanHandler, span, returnValue: error, element, args: args });
+                        postProcessSpanData({ instance: thisArg, spanHandler, span, returnValue: error, element, args: args, sourcePath });
                     });
                 }
                 else {
-                    postProcessSpanData({ instance: thisArg, spanHandler, span, returnValue, element, args: args });
+                    postProcessSpanData({ instance: thisArg, spanHandler, span, returnValue, element, args: args, sourcePath });
                 }
             }
 
-            spanHandler.setDefaultMonocleAttributes({ span: span, instance: thisArg, args: args, element: element });
+            spanHandler.setDefaultMonocleAttributes({ span: span, instance: thisArg, args: args, element: element, sourcePath: sourcePath });
 
 
             return returnValue;
@@ -155,8 +157,8 @@ function getSpanName(element: WrapperArguments): string {
     return element.spanName || (element.package || '' + element.object || '' + element.method || '');
 }
 
-function postProcessSpanData({ instance, spanHandler, span, returnValue, element, args }) {
-    spanHandler.postProcessSpan({ span, instance: instance, args: args, returnValue, outputProcessor: null });
-    spanHandler.processSpan({ span, instance: instance, args: args, outputProcessor: element.output_processor, returnValue, wrappedPackage: element.package });
+function postProcessSpanData({ instance, spanHandler, span, returnValue, element, args, sourcePath }) {
+    spanHandler.postProcessSpan({ span, instance: instance, args: args, returnValue, outputProcessor: null, sourcePath });
+    spanHandler.processSpan({ span, instance: instance, args: args, outputProcessor: element.output_processor, returnValue, wrappedPackage: element.package, sourcePath });
     span.end();
 }
