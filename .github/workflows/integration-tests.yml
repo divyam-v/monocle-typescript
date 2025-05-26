@@ -27,6 +27,9 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    - name: Build package
+      run: npm run build
+      
     - name: Set up integration test environment variables
       run: |
         echo "OPENSEARCH_ENDPOINT=opensearch-endpoint" >> $GITHUB_ENV
